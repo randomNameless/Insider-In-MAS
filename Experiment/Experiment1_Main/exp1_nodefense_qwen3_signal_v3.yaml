@@ -1,0 +1,35 @@
+# Qwen3 PPO v3: stronger task-learning signal without Position collapse.
+# Delta-applied on top of exp1_nodefense.yaml by the v3 runner.
+
+base_config: exp1_nodefense.yaml
+
+actor:
+  model_name: /path/to/LLaMA-Factory/saves/qwen3-4b/malicious-full-sft
+  sft_adapter: null
+
+ppo:
+  # Twice as many independent episodes reduces advantage/terminal noise.
+  # Actor numerical forwards remain B=1; logical optimizer batches remain 8.
+  batch_episodes_N: 16
+
+lr:
+  # v1/v2 had D_m/D_n~0 and clip_frac~0 at 1e-5. Increase cautiously while
+  # retaining hard_stop_kl=0.03 and grad clipping=1.0 from the base config.
+  actor: 2.0e-5
+
+trust_region:
+  # Keep the weaker reference anchor from v2: v1 KL loss dominated PPO.
+  beta_kl_ref: 3.0e-3
+
+  # Restore Position protection after v2 collapsed to entropy 0.08-0.24.
+  # Message stays lower because sequence diversity remained healthy.
+  ent_coef: 0.004
+  ent_coef_position: 0.010
+  ent_coef_message: 0.002
+
+train:
+  out_dir: runs/exp1_nodefense_qwen3_signal_v3
+
+eval_output:
+  out_dir: results/qwen3_signal_v3
+

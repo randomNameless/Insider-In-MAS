@@ -1,0 +1,72 @@
+# Bozdag et al. 2026 GRPO reproduction, setup B (2026-10-20). Same keys / values as their
+# configs/run_configs/p-rl_qwen2-5-7b.yaml unless marked  # DEV: <reason>.
+experiment_name: &experiment_name "p-rl_qwen3-4b_persuadee-qwen3-5-9b_mmlupro"
+model_path: "/path/to/models/qwen3-4b"                 # DEV: our attacker base (theirs: Qwen2.5-7B-Instruct)
+project_name: "adversarial-persuasion"
+
+gpu:
+  cuda_visible_devices: "0"                               # DEV: 1 x H100 (theirs: 6 GPUs)
+  n_gpus_per_node: 1
+
+data:
+  train_path: "/path/to/runs/bozdag_grpo_B/data/mmlupro_fit_training_data.parquet"   # DEV: MMLU-Pro fit, persuadee 9B
+  val_path: "/path/to/runs/bozdag_grpo_B/data/mmlupro_fit_training_data.parquet"
+  train_batch_size: 24
+  val_batch_size: 24
+  max_prompt_length: 2048                                  # their value; drops 27% of our rows (engineering keeps 27%), decision: keep theirs
+  max_response_length: 2048
+
+trainer:
+  resume_mode: "auto"                                      # DEV: resumable on a single node (theirs: disable)
+  total_epochs: 3
+  save_freq: 10
+  test_freq: -1
+  log_val_generations: 24
+
+actor:
+  lr: 1e-6
+  ppo_mini_batch_size: 24
+  ppo_micro_batch_size_per_gpu: 2                          # DEV: 4 OOMs in update_actor next to the persuadee server;
+  # grad accumulation over the same mini-batch of 24 -> same update up to fp rounding
+  ppo_epochs: 3
+  use_kl_loss: false
+  kl_loss_coef: 0.001
+  kl_loss_type: "low_var_kl"
+  entropy_coeff: 0
+  enable_gradient_checkpointing: true
+  fsdp_param_offload: true                                 # DEV: 1 GPU memory (theirs: false); numerics unchanged. Needs
+  # kernel.yama.ptrace_scope=0 on Lambda (SGLang weight sync via CUDA IPC uses pidfd_getfd)
+  fsdp_optimizer_offload: true                             # DEV: 1 GPU memory (theirs: false); numerics unchanged
+  fsdp_model_dtype: "fp32"
+
+rollout:
+  n: 6
+  gpu_memory_utilization: 0.50                             # DEV: memory/speed only (theirs: 0.8). 0.35 while the persuadee server shared
+  # the H100 (10-21, OOM); since 10-25 the persuadee is served on the local RTX 5090 through a reverse SSH tunnel
+  # (debate_ppo/bozdag_grpo/tunnel_local.sh), so the whole GPU is the trainer's: actor params are offloaded during
+  # rollout and SGLang releases its memory before the fp32 update (~64 GB of weights + grads + Adam at that moment).
+  tensor_model_parallel_size: 1
+  log_prob_micro_batch_size_per_gpu: 4
+  multi_turn_max_user_turns: 1
+  multi_turn_max_parallel_calls: 8
+  enable_thinking: false
+
+ref:
+  log_prob_micro_batch_size_per_gpu: 4
+  fsdp_param_offload: true                                 # DEV: 1 GPU memory (theirs: false)
+  fsdp_model_dtype: "fp32"
+
+interaction:
+  - name: "persuasion"
+    class_name: "src.interactions.persuasion_interaction.PersuasionInteraction"   # FIX: no verl version reads class_path;
+    # the registry needs a dotted module path (their launcher puts the repo root on PYTHONPATH). Same class.
+    class_path: "src/interactions/persuasion_interaction.py"
+    config:
+      persuadee_model_name: "qwen3.5-9b"                   # DEV: our victim, served with enable_thinking=false
+      persuadee_max_tokens: 1024
+      api_base: "http://localhost:8000/v1"
+      api_key: "EMPTY"
+      conversation_logging:
+        enabled: true
+        experiment_name: *experiment_name
+        log_dir: null

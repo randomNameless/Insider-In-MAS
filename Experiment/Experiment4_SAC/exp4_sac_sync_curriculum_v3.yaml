@@ -1,0 +1,25 @@
+# SAC curriculum: continue training the strongest no-defense Exp1 PPO adapter
+# inside the round-synchronous SAC environment. The source adapter is loaded as
+# trainable LoRA weights; it is not overwritten and new saves go to out_dir.
+base_config: ../Experiment1_Main/exp1_nodefense.yaml
+v4_config: ../Experiment1_Main/exp1_nodefense_qwen3_ppo_v4_sync.yaml
+
+actor:
+  model_name: /path/to/LLaMA-Factory/saves/qwen3-4b/malicious-full-sft
+  sft_adapter: /path/to/consensus-attacker/Experiment/Experiment1_Main/runs/exp1_nodefense_qwen3_ppo_dominant_v4/best
+
+lr:
+  actor: 5.0e-6
+
+defense:
+  type: experiment4_sac
+  topology: complete_4
+  f: 1
+  receiver_side_scoring: true
+  scorer_max_new_tokens: 8
+
+train:
+  out_dir: runs/exp4_sync_sac_curriculum_from_exp1_v3
+
+eval_output:
+  out_dir: results/exp4_sync_sac_curriculum_from_exp1_v3

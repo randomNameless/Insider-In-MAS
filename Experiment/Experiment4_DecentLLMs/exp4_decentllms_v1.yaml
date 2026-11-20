@@ -1,0 +1,18 @@
+# Experiment 4 delta: immutable Exp1 base + selected V4 PPO settings.
+base_config: ../Experiment1_Main/exp1_nodefense.yaml
+v4_config: ../Experiment1_Main/exp1_nodefense_qwen3_ppo_v4.yaml
+
+defense:
+  type: decentllms_game_adaptation
+  evaluator_count: 3
+  criteria_count: 5
+  evaluator_max_new_tokens: 256
+  geometric_median_tolerance: 1.0e-5
+  geometric_median_max_iterations: 1000
+  selected_proposal_as_peer_input: true
+
+train:
+  out_dir: runs/exp4_decentllms_qwen3_ppo_v4_lr2e5_v1
+
+eval_output:
+  out_dir: results/exp4_decentllms_qwen3_ppo_v4_lr2e5_v1

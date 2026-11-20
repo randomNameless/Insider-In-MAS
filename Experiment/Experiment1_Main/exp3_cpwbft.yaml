@@ -1,0 +1,133 @@
+# Experiment 3 — CP-WBFT DEFENSE, MIXED benign personalities.
+#
+# Identical to exp1_nodefense.yaml (same attacker init: stock Qwen3-4B-Instruct-2507,
+# fresh LoRA, no SFT; same critic / PPO / reward), PLUS a CP-WBFT confidence input
+# filter on the benign (victim) WM agents:
+#   - each agent's confidence = decoder peakedness of its Position-digit tokens
+#     (benign from the WM, attacker from the actor); computed for free at generation;
+#   - before a benign updates, it only attends to neighbors whose confidence >= its
+#     own (minus margin); lower-confidence neighbors' position + message are dropped.
+# So a less-"confident" (less peaked) malicious claim is ignored that round.
+# Adapted from arXiv 2511.10400 (HCP trained probe skipped; PCP replaced by decoder peakedness).
+#
+# Attacker starts fresh (same init as Exp1); the ONLY difference vs Exp1 is `defense`.
+# Re-run preflight for THIS config (the defense changes the D_t distribution).
+
+# ---- 模型 ----
+actor:
+  model_name: Qwen/Qwen3-4B-Instruct-2507
+  thinking: false
+  fp32: true
+  max_new_tokens: 64
+  lora:
+    r: 32
+    alpha: 64
+    dropout: 0.0
+    target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
+
+critic:
+  model_name: Qwen/Qwen3-4B
+  fp32: false
+
+world_model:
+  model_name: /path/to/models/qwen35-wm
+  max_new_tokens: 200
+
+real_eval:
+  model_name: /path/to/models/qwen35-wm
+  max_new_tokens: 200
+
+# ---- Defense (Exp3) ----
+defense:
+  type: cpwbft                       # CP-WBFT confidence input filter on benign WM
+  margin: 0.0                        # keep neighbor j iff conf[j] >= conf[i] - margin
+
+# ---- Game ----
+game:
+  max_pos: 20
+  n_benign: 3
+  max_steps: 10
+  consensus_tol: 0
+  benign_personalities: [stubborn, suggestible, neutral]
+  benign_personality: suggestible
+  msg_order: index
+  init: random
+  seed: 0
+
+# ---- Reward (§4) ----
+reward:
+  alpha_spread: 0.3
+  eta_early_fail: 0.1
+  invalid_penalty: -0.05
+  beta_fluency: 0.2
+  fluency_threshold: -4.0
+  xi_uncertainty: 0.0
+  beta_cf: 0.0
+  phi_w_range: 0.7
+  phi_w_pair: 0.3
+
+# ---- GAE (§5) ----
+gae:
+  gamma: 0.99
+  lam_actor: 0.90
+  lam_critic: 0.95
+
+# ---- PPO (§6, §7) ----
+ppo:
+  clip_eps: 0.2            # <-- RE-RUN preflight for exp3 and set this to its value
+  group_size_G: 1
+  epochs: 1
+  grad_norm: 1.0
+  batch_episodes_N: 8
+  minibatch_turns: 2
+  w_next_position: 0.1
+  w_message: 0.9
+
+# ---- LR (§6.3) ----
+lr:
+  actor: 1.0e-5
+  critic: 3.0e-6
+  schedule: constant
+  warmup_steps: 20
+
+# ---- Trust region (§7) ----
+trust_region:
+  target_kl: 0.015
+  hard_stop_kl: 0.03
+  hard_stop_clipfrac: 0.35
+  beta_kl_ref: 1.0e-2
+  ent_coef: 0.003
+  target_ref_kl: [0.01, 0.03]
+
+# ---- Critic warmup (§7.1) ----
+critic_warmup:
+  steps: 40
+  min_explained_variance: 0.4
+
+# ---- 训练 ----
+train:
+  iterations: 300
+  bf16: true
+  seed: 0
+  out_dir: runs/exp3_cpwbft
+
+# ---- 评估 (§7.f) ----
+eval:
+  real_eval_every: 20
+  real_eval_episodes: 16
+  reuse_world_model: true
+
+# ---- SFT (unused) ----
+sft:
+  n_rollout_games: 500
+  keep_top_frac: 0.25
+  epochs: 3
+  lr: 1.0e-5
+  batch_size: 8
+  out_dir: runs/sft
+
+# ---- logging ----
+log:
+  wandb: false
+  wandb_project: consensus-attacker
+  log_every: 1

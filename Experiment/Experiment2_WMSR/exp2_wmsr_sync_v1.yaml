@@ -1,0 +1,12 @@
+base_config: ../Experiment1_Main/exp1_nodefense.yaml
+v4_config: ../Experiment1_Main/exp1_nodefense_qwen3_ppo_v4_sync.yaml
+
+defense:
+  type: paper_global_wmsr
+  f: 1
+
+train:
+  out_dir: runs/exp2_sync_wmsr_qwen3_ppo_v4
+
+eval_output:
+  out_dir: results/exp2_sync_wmsr_qwen3_ppo_v4

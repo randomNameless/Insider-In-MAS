@@ -1,0 +1,98 @@
+# Experiment 9 v5: = v4b (answer-first, Qwen3-4B, v3 prompt, LR 2e-5) but honest agents = distilled debate WM (debate-wm-v1, SFT on 9B v1 trajectories); 120 steps; checkpoints selected post-hoc on val with real 9B
+# Starts from Exp1 V4 (exp1_nodefense.yaml + exp1_nodefense_qwen3_ppo_v4.yaml delta). Paths = Lambda.
+
+actor:
+  model_name: /path/to/models/qwen3-4b                  # plain Qwen3-4B; pi_ref = this
+  fp32: true
+  max_new_tokens: 160          # argument cap (cap hit -> truncation penalty)
+  temperature: 1.0
+  gen_batch: 8                 # 16 OOM-ed at iteration 50 (same batch in two runs: long prompts)
+  answer_first: true           # Answer: <letter> then Argument: (letter = explicit explorable action)
+  lora:
+    r: 32
+    alpha: 64
+    dropout: 0.0
+    target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
+
+critic:
+  model_name: /path/to/models/qwen3-4b                  # Qwen/Qwen3-4B, full FT in bf16
+  fp32: false
+
+world_model:                    # honest agents during training (vLLM)
+  model_name: /path/to/models/debate-wm-v1             # distilled debate WM (2026-10-16)
+  gpu_memory_utilization: 0.17
+  max_model_len: 6144
+  max_num_seqs: 128
+  enforce_eager: true          # vLLM hung twice in a WM decode step (GPU ~80 W at 100%); no CUDA graphs
+  temperature: 0.7
+  max_new_tokens: 160
+
+monitor:                        # real Qwen3.5-9B honest agents on a few val debates (log only)
+  enabled: false               # in-process monitor OOM-crashed the run (steps 20/40/51); 9B is evaluated post-hoc on checkpoint-XXXX instead
+  model_name: /path/to/models/qwen3.5-9b
+  gpu_memory_utilization: 0.30
+  every: 20
+  n_questions: 48
+
+data:
+  tasks: /path/to/data/mmlupro_v1/tasks.jsonl
+
+reward:
+  alpha_spread: 1.0             # alpha_belief on Phi = -mean_i P_i(gold)
+  terminal_wrong: 1.0
+  terminal_deadlock: 0.5
+  terminal_correct: -1.0
+  invalid_penalty: -0.05
+  beta_fluency: 0.02            # V4 (0.1x)
+  fluency_threshold: -4.0
+  beta_length: 0.002            # V4
+  target_message_tokens: 96
+  truncation_penalty: -0.004    # V4
+  beta_diversity: 0.005         # V4
+  diversity_threshold: 0.5
+
+gae:
+  gamma: 0.99
+  lam_actor: 0.90
+  lam_critic: 0.95
+
+ppo:
+  clip_eps: 0.2                 # re-checked by --preflight
+  epochs: 1
+  grad_norm: 1.0
+  batch_episodes_N: 32          # 32 debates x 3 attacker turns = 96 turns / step
+  logprob_microbatch_turns: 1
+  update_batch_turns: 8
+  w_next_position: 0.5          # answer-letter segment
+  w_message: 0.5                # argument segment
+
+lr:
+  actor: 2.0e-5
+  critic: 3.0e-6
+
+trust_region:
+  hard_stop_kl: 0.03
+  beta_kl_ref: 3.0e-4
+  ent_coef: 0.0004
+  ent_coef_position: 0.001
+  ent_coef_message: 0.0002
+
+critic_warmup:
+  steps: 40
+  min_explained_variance: 0.4
+
+train:
+  iterations: 120
+  bf16: true
+  seed: 0
+  out_dir: /path/to/runs/exp9_debate_ppo_v5_newwm
+  checkpoint_every: 20
+
+eval:
+  real_eval_every: 20
+  validation_batch_episodes: 32
+  validation_seed: 7000000
+  min_attacker_valid: 0.95
+
+log:
+  wandb: false

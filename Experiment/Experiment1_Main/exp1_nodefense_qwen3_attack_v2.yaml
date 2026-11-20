@@ -1,0 +1,28 @@
+# Attack-priority Qwen3-4B PPO variant.
+# This is a DELTA config applied on top of exp1_nodefense.yaml by
+# exp1_nodefense_qwen3_attack_v2.py. Keep unrelated knobs in the base config so
+# this experiment isolates weaker KL/entropy regularization.
+
+base_config: exp1_nodefense.yaml
+
+actor:
+  model_name: /path/to/LLaMA-Factory/saves/qwen3-4b/malicious-full-sft
+  sft_adapter: null
+
+trust_region:
+  # Previous run: KL loss ~0.025-0.030 while PPO loss was ~0.001.
+  # Reduce the reference anchor 3.33x so task reward can move the policy.
+  beta_kl_ref: 3.0e-3
+
+  # Previous run: entropy bonus ~0.010, also much larger than PPO loss.
+  # Keep nonzero collapse protection, but roughly halve both segments.
+  ent_coef: 0.003
+  ent_coef_position: 0.005
+  ent_coef_message: 0.002
+
+train:
+  out_dir: runs/exp1_nodefense_qwen3_attack_v2
+
+eval_output:
+  out_dir: results/qwen3_attack_v2
+

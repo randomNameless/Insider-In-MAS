@@ -1,0 +1,25 @@
+{
+  "schema": 1,
+  "base_model": "{home}/LLaMA-Factory/saves/qwen3-4b/malicious-full-sft",
+  "adapters": {
+    "exp1_nodefense": "{repo}/Experiment/Experiment1_Main/runs/exp1_nodefense_qwen3_ppo_dominant_v4/best",
+    "exp2_wmsr": "{repo}/Experiment/Experiment2_WMSR/runs/exp2_paper_wmsr_qwen3_ppo_v4_lr2e5_v1/best",
+    "exp3_cpwbft": "{repo}/Experiment/Experiment3_CPWBFT/runs/exp3_cpwbft_qwen3_ppo_v4_lr2e5_v1/best",
+    "exp4_curriculum": "{repo}/Experiment/Experiment4_SAC/runs/exp4_sync_sac_curriculum_from_exp1_v3/best"
+  },
+  "victims": {
+    "wm": "{home}/models/qwen35-wm",
+    "qwen35_9b": "{home}/models/qwen3.5-9b"
+  },
+  "defenses": ["no_defense", "wmsr", "cpwbft", "sac"],
+  "seeds": [9000, 9001, 9002, 9003, 9004],
+  "n_exp": 200,
+  "batch_size": 8,
+  "max_steps": 10,
+  "max_pos": 20,
+  "actor_message_tokens": 48,
+  "wm_tokens": 200,
+  "gpu_mem_util": 0.60,
+  "max_model_len": 2048,
+  "output": "{repo}/Experiment/Experiment7_DefenseAdaptation/results/matrix_v1"
+}

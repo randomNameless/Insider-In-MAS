@@ -1,0 +1,115 @@
+# Turn-PPO consensus-game attacker — v1 config (spec §8).
+
+# ---- 模型 ----
+actor:
+  model_name: Qwen/Qwen2.5-7B-Instruct   # stand-in for "Qwen3.5-9B"; swap when available
+  thinking: false
+  max_new_tokens: 96
+  lora:
+    r: 32
+    alpha: 64
+    dropout: 0.05
+    target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
+
+critic:
+  model_name: Qwen/Qwen2.5-3B            # separate 1.5B-4B base + linear value head
+  fp32: true                            # fp32 stable for <=1.5B; false = bf16 (fits ~4B)
+  # start at ~4B per §12.3; drop only if value_explained_variance stays high.
+
+world_model:
+  model_name: Qwen/Qwen2.5-3B-Instruct   # stand-in for "Qwen3.5-4B", frozen
+  max_new_tokens: 64
+
+real_eval:
+  model_name: Qwen/Qwen2.5-7B-Instruct   # "real 9B benign" stand-in; frozen
+  max_new_tokens: 64
+
+# reference = actor SFT checkpoint, frozen — realized via LoRA adapter toggle,
+# so no separate weights are loaded (see attacker/models.py).
+
+# ---- Game ----
+game:
+  max_pos: 20
+  n_benign: 3
+  max_steps: 10
+  consensus_tol: 0
+  benign_personality: suggestible
+  msg_order: index
+  init: random
+  seed: 0
+
+# ---- Reward (§4) ----
+reward:
+  alpha_spread: 0.3
+  eta_early_fail: 0.1
+  invalid_penalty: -0.05
+  beta_fluency: 0.1        # anti-gibberish penalty scale (0 = off)
+  fluency_threshold: -4.0  # per-token base log-prob floor; below this = penalized
+  xi_uncertainty: 0.0      # v1 off
+  beta_cf: 0.0             # v1 off
+  phi_w_range: 0.7
+  phi_w_pair: 0.3
+
+# ---- GAE (§5) ----
+gae:
+  gamma: 0.99
+  lam_actor: 0.90
+  lam_critic: 1.00
+
+# ---- PPO (§6, §7) ----
+ppo:
+  clip_eps: 0.2            # calibrate per §10.E before trusting
+  group_size_G: 1
+  epochs: 1               # [TRAP] do NOT increase
+  grad_norm: 1.0
+  batch_episodes_N: 32     # 32-64
+  minibatch_turns: 16      # 16-32
+  w_next_position: 0.1
+  w_message: 0.9
+
+# ---- LR (§6.3) ----
+lr:
+  actor: 1.0e-6            # = 5e-6 / T̄, already normalized for the 1/N denominator
+  critic: 1.0e-5           # 5-10x actor
+  schedule: constant
+  warmup_steps: 20
+
+# ---- Trust region (§7) ----
+trust_region:
+  target_kl: 0.015
+  hard_stop_kl: 0.03       # per-minibatch approx_kl early stop
+  hard_stop_clipfrac: 0.35
+  beta_kl_ref: 1.0e-3
+  target_ref_kl: [0.01, 0.03]
+
+# ---- Critic warmup (§7.1) ----
+critic_warmup:
+  steps: 100               # 50-100
+  min_explained_variance: 0.5
+
+# ---- 训练 ----
+train:
+  iterations: 2000
+  bf16: true
+  seed: 0
+  out_dir: runs/v1
+
+# ---- 评估 (§7.f) ----
+eval:
+  real_eval_every: 10      # PPO iterations
+  real_eval_episodes: 32
+
+# ---- SFT / rejection sampling (§1.1) ----
+sft:
+  n_rollout_games: 2000
+  keep_top_frac: 0.25      # rejection sampling by final outcome + Phi
+  epochs: 3
+  lr: 1.0e-5
+  batch_size: 8
+  out_dir: runs/sft
+
+# ---- logging ----
+log:
+  wandb: false
+  wandb_project: consensus-attacker
+  log_every: 1

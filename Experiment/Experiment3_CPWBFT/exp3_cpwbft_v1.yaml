@@ -1,0 +1,16 @@
+# Experiment 3 delta: immutable Exp1 base + immutable PPO-dominant V4 delta,
+# followed by the CP-WBFT confidence filter and isolated output directories.
+base_config: ../Experiment1_Main/exp1_nodefense.yaml
+v4_config: ../Experiment1_Main/exp1_nodefense_qwen3_ppo_v4.yaml
+
+defense:
+  type: experiment3_cpwbft
+  confidence_source: position_token_decoder_peakedness
+  margin: 0.0
+  keep_min_one: true
+
+train:
+  out_dir: runs/exp3_cpwbft_qwen3_ppo_v4_lr2e5_v1
+
+eval_output:
+  out_dir: results/exp3_cpwbft_qwen3_ppo_v4_lr2e5_v1

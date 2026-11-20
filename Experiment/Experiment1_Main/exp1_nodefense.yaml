@@ -1,0 +1,150 @@
+# Experiment 1 (Main) — NO-DEFENSE consensus attack, MIXED benign personalities.
+#
+#   attacker (actor, LoRA)  = /path/to/models/malicious-merged
+#                             (Qwen3.5-4B merged malicious/SFT checkpoint)
+#   critic (full-ft, bf16)  = Qwen/Qwen3-4B                (raw base backbone + value head)
+#   world model (frozen)    = /path/to/models/qwen35-wm
+#   benign combo            = 1 stubborn + 1 suggestible + 1 neutral (one of each)
+#   defense                 = NONE (plain env; benign read raw numeric positions)
+#
+# RL starts from the merged malicious/SFT model. A fresh RL LoRA is trained on
+# top, and disabling it gives pi_ref = this merged checkpoint.
+# Target: 1x H100 80GB. Run scripts/preflight.py first, set ppo.clip_eps to its value.
+
+# ---- 模型 ----
+actor:
+  model_name: /path/to/models/malicious-merged
+  thinking: false                    # enforced in generation.py regardless
+  fp32: true                         # exact, batch-invariant logprobs (bf16 fails
+                                     # preflight [A'] at ~0.5 and corrupts ratios).
+                                     # Costs ~+8GB actor VRAM; see Experiment1_Main.md.
+  max_new_tokens: 48
+  lora:
+    r: 32
+    alpha: 64
+    dropout: 0.0    # MUST be 0 for PPO: LoRA dropout randomizes each logprob
+                    # forward -> old/new/ref ratios get ~2x dropout noise (and
+                    # preflight [A'] fails at ~0.018). KL-to-ref + entropy already
+                    # regularize. (was 0.05, an SFT-style default.)
+    target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
+
+critic:
+  model_name: Qwen/Qwen3-4B          # raw base (Exp1 uses Qwen3-4B for the critic)
+  fp32: false                        # 4B full-finetune must be bf16 (fp32 won't fit)
+
+world_model:
+  # ABSOLUTE path — ~ is NOT expanded by HF. Set this to your own absolute path.
+  model_name: /path/to/models/qwen35-wm
+  max_new_tokens: 200
+
+real_eval:
+  model_name: /path/to/models/qwen35-wm   # unused when reuse below
+  max_new_tokens: 200
+
+# ---- Game (matches RL_attack_env_qwen.py) ----
+game:
+  max_pos: 20
+  n_benign: 3
+  max_steps: 10
+  consensus_tol: 0
+  # Exp1: mixed benign combo, one of each. Assigned to benign indices 0,1,2 in
+  # order. benign_personality below is only a fallback if this list is removed.
+  benign_personalities: [stubborn, suggestible, neutral]
+  benign_personality: suggestible
+  msg_order: index
+  init: random
+  seed: 0
+
+# ---- Reward (§4) ----
+reward:
+  alpha_spread: 0.3
+  eta_early_fail: 0.1
+  invalid_penalty: -0.05
+  beta_fluency: 0.2          # merged SFT anchor + fluency guard; bump to 0.3 if junk
+  fluency_threshold: -4.0
+  beta_length: 0.02
+  target_message_tokens: 32
+  truncation_penalty: -0.04
+  beta_diversity: 0.05
+  diversity_threshold: 0.5
+  xi_uncertainty: 0.0
+  beta_cf: 0.0
+  phi_w_range: 0.7
+  phi_w_pair: 0.3
+
+# ---- GAE (§5) ----
+gae:
+  gamma: 0.99
+  lam_actor: 0.90
+  lam_critic: 0.95
+
+# ---- PPO (§6, §7) ----
+ppo:
+  clip_eps: 0.2            # keep when Qwen3.5 generation/recompute [A] differs;
+                           # tune later from turn_clip_frac, not invalid [E]
+  group_size_G: 1
+  epochs: 1
+  grad_norm: 1.0
+  batch_episodes_N: 8
+  # Actor forward remains B=1 for Qwen3.5 numerical consistency, while eight
+  # turns accumulate before optimizer.step and before KL early-stop is judged.
+  logprob_microbatch_turns: 1
+  update_batch_turns: 8
+  # Equal total gradient weight per segment. Each segment is averaged over its
+  # own tokens first, so the shorter Position segment is not drowned by Message.
+  w_next_position: 0.5
+  w_message: 0.5
+
+# ---- LR (§6.3) ----
+lr:
+  actor: 1.0e-5
+  critic: 3.0e-6
+  schedule: constant
+  warmup_steps: 20
+
+# ---- Trust region (§7) ----
+trust_region:
+  target_kl: 0.015
+  hard_stop_kl: 0.03
+  hard_stop_clipfrac: 0.35
+  beta_kl_ref: 1.0e-2      # anchors to pi_ref (= malicious-merged with RL LoRA off)
+  ent_coef: 0.006          # resist token-level policy collapse; watch entropy
+  ent_coef_position: 0.010 # stronger protection for the collapsed Position policy
+  ent_coef_message: 0.004  # Message entropy was already healthy
+  target_ref_kl: [0.01, 0.03]
+
+# ---- Critic warmup (§7.1) ----
+critic_warmup:
+  steps: 40
+  min_explained_variance: 0.4
+
+# ---- 训练 ----
+train:
+  iterations: 300
+  bf16: true
+  seed: 0
+  out_dir: runs/exp1_nodefense_repro_v2
+  checkpoint_every: 20              # actor-only snapshots for checkpoint sweep
+
+# ---- 评估 (§7.f) ----
+eval:
+  real_eval_every: 20
+  real_eval_episodes: 128            # fixed validation pool; 16 was far too noisy
+  validation_batch_episodes: 8       # bounded memory; accumulate all 128 episodes
+  validation_seed: 7000000           # same states + token RNG for every checkpoint
+  reuse_world_model: true
+
+# ---- SFT (unused) ----
+sft:
+  n_rollout_games: 500
+  keep_top_frac: 0.25
+  epochs: 3
+  lr: 1.0e-5
+  batch_size: 8
+  out_dir: runs/sft
+
+# ---- logging ----
+log:
+  wandb: false
+  wandb_project: consensus-attacker
+  log_every: 1

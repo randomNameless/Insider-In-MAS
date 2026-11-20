@@ -1,0 +1,124 @@
+# Qwen3-4B (raw instruct/chat base) attacker + Qwen3-4B critic vs 3x suggestible WM.
+# Derived from prototype.yaml. Changes vs prototype:
+#   - actor  = raw Qwen3-4B (NO SFT merge)  -> pi_ref = raw base (weaker anchor)
+#   - critic = Qwen3-4B, bf16 (fp32 4B critic won't fit) via critic.fp32: false
+#   - world_model / real_eval -> opd-mm WM  (ABSOLUTE path; ~ is NOT expanded)
+#   - minibatch_turns 4 -> 2 to fit a 4B bf16 full-finetune critic + 4B actor + 4B WM
+# Target: 1x H100 80GB. Run scripts/preflight.py first and set ppo.clip_eps to its
+# printed value.
+
+# ---- 模型 ----
+actor:
+  model_name: Qwen/Qwen3-4B          # RAW base (user chose "qwen3-4b instruct").
+                                     # NOTE: no SFT anchor -> watch msg_ref_logp /
+                                     # reward_fluency for drift into gibberish.
+  thinking: false                    # enforced in generation.py regardless
+  max_new_tokens: 64
+  lora:
+    r: 32
+    alpha: 64
+    dropout: 0.05
+    target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
+
+critic:
+  model_name: Qwen/Qwen3-4B
+  fp32: false    # 4B full-finetune must be bf16 (fp32 won't fit); stabilized by
+                 # eps=1e-5 AdamW + non-finite-grad skip + fp32 value head + Huber.
+
+world_model:
+  # ABSOLUTE path — ~ is NOT expanded by HF. Set this to your own absolute path.
+  model_name: /path/to/qwen35_wm_pm_backup/opd-mm
+  max_new_tokens: 200
+
+real_eval:
+  model_name: /path/to/qwen35_wm_pm_backup/opd-mm    # unused when reuse below
+  max_new_tokens: 200
+
+# ---- Game (matches RL_attack_env_qwen.py) ----
+game:
+  max_pos: 20
+  n_benign: 3
+  max_steps: 10
+  consensus_tol: 0
+  benign_personality: suggestible
+  msg_order: index
+  init: random
+  seed: 0
+
+# ---- Reward (§4) ----
+reward:
+  alpha_spread: 0.3
+  eta_early_fail: 0.1
+  invalid_penalty: -0.05
+  beta_fluency: 0.2          # raw base -> keep anti-gibberish ON; bump to 0.3 if junk
+  fluency_threshold: -4.0
+  xi_uncertainty: 0.0
+  beta_cf: 0.0
+  phi_w_range: 0.7
+  phi_w_pair: 0.3
+
+# ---- GAE (§5) ----
+gae:
+  gamma: 0.99
+  lam_actor: 0.90
+  lam_critic: 0.95
+
+# ---- PPO (§6, §7) ----
+ppo:
+  clip_eps: 0.2            # <-- set to the value preflight prints (§10.E)
+  group_size_G: 1
+  epochs: 1
+  grad_norm: 1.0
+  batch_episodes_N: 8
+  minibatch_turns: 2       # 4B bf16 critic + 4B actor + 4B WM -> drop 4->2 for memory
+  w_next_position: 0.1
+  w_message: 0.9
+
+# ---- LR (§6.3) ----
+lr:
+  actor: 1.0e-5
+  critic: 3.0e-6
+  schedule: constant
+  warmup_steps: 20
+
+# ---- Trust region (§7) ----
+trust_region:
+  target_kl: 0.015
+  hard_stop_kl: 0.03
+  hard_stop_clipfrac: 0.35
+  beta_kl_ref: 1.0e-2      # anchors to pi_ref (= raw base here); holds fluency
+  ent_coef: 0.003
+  target_ref_kl: [0.01, 0.03]
+
+# ---- Critic warmup (§7.1) ----
+critic_warmup:
+  steps: 40
+  min_explained_variance: 0.4
+
+# ---- 训练 ----
+train:
+  iterations: 300
+  bf16: true
+  seed: 0
+  out_dir: runs/qwen3_4b
+
+# ---- 评估 (§7.f) ----
+eval:
+  real_eval_every: 20
+  real_eval_episodes: 16
+  reuse_world_model: true
+
+# ---- SFT (unused) ----
+sft:
+  n_rollout_games: 500
+  keep_top_frac: 0.25
+  epochs: 3
+  lr: 1.0e-5
+  batch_size: 8
+  out_dir: runs/sft
+
+# ---- logging ----
+log:
+  wandb: false
+  wandb_project: consensus-attacker
+  log_every: 1

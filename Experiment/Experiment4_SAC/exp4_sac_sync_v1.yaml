@@ -1,0 +1,15 @@
+base_config: ../Experiment1_Main/exp1_nodefense.yaml
+v4_config: ../Experiment1_Main/exp1_nodefense_qwen3_ppo_v4_sync.yaml
+
+defense:
+  type: experiment4_sac
+  topology: complete_4
+  f: 1
+  receiver_side_scoring: true
+  scorer_max_new_tokens: 8
+
+train:
+  out_dir: runs/exp4_sync_sac_qwen3_ppo_v4
+
+eval_output:
+  out_dir: results/exp4_sync_sac_qwen3_ppo_v4

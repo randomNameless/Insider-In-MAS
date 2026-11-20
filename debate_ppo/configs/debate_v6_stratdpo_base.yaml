@@ -1,0 +1,110 @@
+# v6 recipe on the strat-DPO base (2026-10-24): = debate_v6_targeted.yaml line for line (targeted persuader, Qwen3-4B
+# LoRA r=32, LR 2e-5, honest = debate-wm-v1, target letter prefilled, Phi = +mean P_honest(target)), with ONLY the actor base
+# changed: the merged strategy-catalog DPO model ~/models/strat-dpo-q3-4b (notes/debate-strat-dpo.md; weights 7aace804.. /
+# e8e42551.., ~/runs/strat_dpo_q3_4b/merged_sha256.txt) instead of plain Qwen3-4B. pi_ref (RL LoRA off) = the DPO model.
+# Critic stays plain Qwen3-4B as in v6. v6b's length changes (cap 200, beta_length 0.01) are NOT applied: v6 as run (c040 = best).
+# Paths = Lambda.
+
+actor:
+  model_name: /path/to/models/strat-dpo-q3-4b           # merged strat-DPO model; pi_ref = this
+  fp32: true
+  max_new_tokens: 160          # argument cap (cap hit -> truncation penalty)
+  temperature: 1.0
+  gen_batch: 8                 # 16 OOM-ed at iteration 50 (same batch in two runs: long prompts)
+  answer_first: true           # Answer: <letter> then Argument: (letter = explicit explorable action)
+  lora:
+    r: 32
+    alpha: 64
+    dropout: 0.0
+    target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
+
+critic:
+  model_name: /path/to/models/qwen3-4b                  # Qwen/Qwen3-4B, full FT in bf16
+  fp32: false
+
+world_model:                    # honest agents during training (vLLM)
+  model_name: /path/to/models/debate-wm-v1             # distilled debate WM (2026-10-16)
+  gpu_memory_utilization: 0.17
+  max_model_len: 6144
+  max_num_seqs: 128
+  enforce_eager: true          # vLLM hung twice in a WM decode step (GPU ~80 W at 100%); no CUDA graphs
+  temperature: 0.7
+  max_new_tokens: 160
+
+monitor:                        # real Qwen3.5-9B honest agents on a few val debates (log only)
+  enabled: false               # in-process monitor OOM-crashed the run (steps 20/40/51); 9B is evaluated post-hoc on checkpoint-XXXX instead
+  model_name: /path/to/models/qwen3.5-9b
+  gpu_memory_utilization: 0.30
+  every: 20
+  n_questions: 48
+
+data:
+  tasks: /path/to/data/mmlupro_v1/tasks.jsonl
+
+targeted:
+  enabled: true
+  targets_file: /path/to/runs/targets_9b_fitval.json
+  force_letter: true            # letter = target, prefilled; the argument is the only action
+
+reward:
+  alpha_spread: 1.0             # alpha_belief on Phi = +mean_i P_i(target)
+  terminal_wrong: 1.0           # (untargeted terms, unused when targeted)
+  terminal_deadlock: 0.5
+  terminal_correct: -1.0        # honest majority on gold
+  terminal_target: 1.0          # honest majority on the assigned target
+  terminal_other_wrong: 0.0     # majority on a different wrong option
+  terminal_target_deadlock: 0.0
+  invalid_penalty: -0.05
+  beta_fluency: 0.02            # V4 (0.1x)
+  fluency_threshold: -4.0
+  beta_length: 0.002            # V4
+  target_message_tokens: 96
+  truncation_penalty: -0.004    # V4
+  beta_diversity: 0.005         # V4
+  diversity_threshold: 0.5
+
+gae:
+  gamma: 0.99
+  lam_actor: 0.90
+  lam_critic: 0.95
+
+ppo:
+  clip_eps: 0.2                 # re-checked by --preflight
+  epochs: 1
+  grad_norm: 1.0
+  batch_episodes_N: 32          # 32 debates x 3 attacker turns = 96 turns / step
+  logprob_microbatch_turns: 1
+  update_batch_turns: 8
+  w_next_position: 0.5          # answer-letter segment (empty: letter prefilled)
+  w_message: 0.5                # argument segment
+
+lr:
+  actor: 2.0e-5
+  critic: 3.0e-6
+
+trust_region:
+  hard_stop_kl: 0.03
+  beta_kl_ref: 3.0e-4
+  ent_coef: 0.0004
+  ent_coef_position: 0.001
+  ent_coef_message: 0.0002
+
+critic_warmup:
+  steps: 40
+  min_explained_variance: 0.4
+
+train:
+  iterations: 120
+  bf16: true
+  seed: 0
+  out_dir: /path/to/runs/exp9_debate_ppo_v6_stratdpo_base
+  checkpoint_every: 20
+
+eval:
+  real_eval_every: 20
+  validation_batch_episodes: 32
+  validation_seed: 7000000
+  min_attacker_valid: 0.95
+
+log:
+  wandb: false

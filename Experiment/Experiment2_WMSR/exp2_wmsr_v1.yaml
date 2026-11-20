@@ -1,0 +1,15 @@
+# Experiment 2 delta. The runner first loads the immutable Experiment-1 base,
+# applies the immutable PPO-dominant V4 delta, then applies this file.
+base_config: ../Experiment1_Main/exp1_nodefense.yaml
+v4_config: ../Experiment1_Main/exp1_nodefense_qwen3_ppo_v4.yaml
+
+defense:
+  type: paper_global_wmsr
+  f: 1
+
+train:
+  out_dir: runs/exp2_paper_wmsr_qwen3_ppo_v4_lr2e5_v1
+
+eval_output:
+  out_dir: results/exp2_paper_wmsr_qwen3_ppo_v4_lr2e5_v1
+

@@ -1,0 +1,7 @@
+{
+  "schema": 1,
+  "base_config": "matrix_config.json",
+  "batch_size": 16,
+  "reuse_seed_models": true,
+  "output": "{repo}/Experiment/Experiment7_DefenseAdaptation/results/matrix_fast_v2"
+}

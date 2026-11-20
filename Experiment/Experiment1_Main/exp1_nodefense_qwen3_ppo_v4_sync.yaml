@@ -1,0 +1,29 @@
+base_config: exp1_nodefense.yaml
+
+actor:
+  model_name: /path/to/LLaMA-Factory/saves/qwen3-4b/malicious-full-sft
+  sft_adapter: null
+
+ppo:
+  batch_episodes_N: 16
+
+lr:
+  actor: 2.0e-5
+
+reward:
+  beta_fluency: 0.02
+  beta_length: 0.002
+  truncation_penalty: -0.004
+  beta_diversity: 0.005
+
+trust_region:
+  beta_kl_ref: 3.0e-4
+  ent_coef: 0.0004
+  ent_coef_position: 0.001
+  ent_coef_message: 0.0002
+
+train:
+  out_dir: runs/exp1_sync_qwen3_ppo_v4
+
+eval_output:
+  out_dir: results/exp1_sync_qwen3_ppo_v4
